@@ -2,8 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const csv = require('fast-csv');
-const app = express();
 
+const app = express();
 const PORT = 8000;
 const CSV_FILE = 'users.csv';
 
@@ -15,29 +15,34 @@ if (!fs.existsSync(CSV_FILE)) {
   fs.writeFileSync(CSV_FILE, 'name,email,phone,password,gender\n');
 }
 
-// Helper function to read all users
+// ✅ Updated readUsers function — trims whitespace
 const readUsers = () => {
   return new Promise((resolve, reject) => {
     const users = [];
     fs.createReadStream(CSV_FILE)
       .pipe(csv.parse({ headers: true }))
-      .on('data', row => users.push(row))
+      .on('data', row => {
+        Object.keys(row).forEach(key => {
+          row[key] = row[key].trim(); // 🧼 Trim each field
+        });
+        users.push(row);
+      })
       .on('end', () => resolve(users))
       .on('error', err => reject(err));
   });
 };
 
-// Helper function to write all users back to CSV (used for updates)
+// Helper function to write all users back to CSV (for updates)
 const writeUsers = (users) => {
   return new Promise((resolve, reject) => {
     const ws = fs.createWriteStream(CSV_FILE);
-    csv.writeToStream(ws, users, { headers: true }) // Write with headers when rewriting all
+    csv.writeToStream(ws, users, { headers: true })
       .on('finish', resolve)
       .on('error', reject);
   });
 };
 
-// Signup
+// POST /signup
 app.post('/signup', async (req, res) => {
   const { name, email, phone, password, gender } = req.body;
   if (!name || !email || !phone || !password || !gender) {
@@ -50,38 +55,60 @@ app.post('/signup', async (req, res) => {
     if (exists) return res.status(409).json({ message: 'User already exists' });
 
     const newUser = { name, email, phone, password, gender };
+
+    // 🧠 Check if we need to add a newline before appending
+    const stats = fs.statSync(CSV_FILE);
+    const needsNewline = stats.size > 0;
+
     const ws = fs.createWriteStream(CSV_FILE, { flags: 'a' });
-    csv.writeToStream(ws, [newUser], { headers: false });
-    res.status(201).json({ success: true, message: 'Signup successful! You can now log in.' });
+
+    if (needsNewline) {
+      ws.write('\n'); // ensure proper separation between rows
+    }
+
+    csv.writeToStream(ws, [newUser], { headers: false })
+      .on('finish', () => {
+        res.status(201).json({ success: true, message: 'Signup successful! You can now log in.' });
+      })
+      .on('error', err => {
+        console.error('CSV write error:', err);
+        res.status(500).json({ message: 'Error writing to CSV' });
+      });
+
   } catch (err) {
     console.error('Signup error:', err);
     res.status(500).json({ message: 'Error signing up' });
   }
 });
 
-// Login
-app.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+
+// POST /login
+app.post("/login", async (req, res) => {
   try {
+    const { email, password } = req.body;
+    console.log('Login attempt with:', email);
+
     const users = await readUsers();
     const user = users.find(u => u.email === email && u.password === password);
+
     if (user) {
       res.json({ success: true, message: 'Login successful' });
     } else {
       res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
-  } catch (err) {
-    console.error('Login error:', err);
-    res.status(500).json({ success: false, message: 'Login error' });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 });
 
-// New Endpoint: Verify user for password reset (checks email and phone)
+// POST /verify-user
 app.post('/verify-user', async (req, res) => {
   const { email, phone } = req.body;
   if (!email || !phone) {
     return res.status(400).json({ found: false, message: 'Email and phone are required for verification.' });
   }
+
   try {
     const users = await readUsers();
     const user = users.find(u => u.email === email && u.phone === phone);
@@ -96,7 +123,7 @@ app.post('/verify-user', async (req, res) => {
   }
 });
 
-// New Endpoint: Reset Password (updates the password)
+// POST /reset-password
 app.post('/reset-password', async (req, res) => {
   const { email, newPassword } = req.body;
   if (!email || !newPassword) {
@@ -108,10 +135,8 @@ app.post('/reset-password', async (req, res) => {
     const userIndex = users.findIndex(u => u.email === email);
 
     if (userIndex !== -1) {
-      // Important: In a real app, hash newPassword before saving!
-      users[userIndex].password = newPassword; // Update the password
-      await writeUsers(users); // Write all users back to the CSV
-
+      users[userIndex].password = newPassword;
+      await writeUsers(users);
       res.json({ success: true, message: 'Password updated successfully!' });
     } else {
       res.status(404).json({ success: false, message: 'User not found.' });
@@ -122,12 +147,10 @@ app.post('/reset-password', async (req, res) => {
   }
 });
 
-
-// All Registered Users (used by Home.jsx)
+// GET /users
 app.get('/users', async (req, res) => {
   try {
     const users = await readUsers();
-    // It's still good practice not to send passwords to the client, even in basic setups.
     const usersWithoutPasswords = users.map(({ password, ...rest }) => rest);
     res.json(usersWithoutPasswords);
   } catch (err) {
@@ -137,5 +160,5 @@ app.get('/users', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`✅ Server running at http://localhost:${PORT}`);
 });

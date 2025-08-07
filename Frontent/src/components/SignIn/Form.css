@@ -81,6 +81,7 @@
   display: flex;
   justify-content: space-between;
   gap: 20px;
+
 }
 
 .submit {
@@ -92,6 +93,11 @@
   text-align: center;
   width: 100%;
   transition: background 0.3s;
+}
+.submit-link{
+  text-decoration: none;
+  color: white;
+
 }
 .error-text {
   color: red;
